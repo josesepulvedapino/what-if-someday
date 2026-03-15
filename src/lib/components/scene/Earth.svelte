@@ -18,7 +18,6 @@
 	let wz = $derived(metersToWorld(body.z));
 
 	const sunDir = new THREE.Vector3(-1, 0, 0);
-	const sunDirUniform = { value: sunDir };
 
 	useTask(() => {
 		const sun = sim.bodies.find(b => b.id === 'sun');
@@ -33,9 +32,16 @@
 		}
 	});
 
-	// Load textures separately to avoid object-mode issues
 	const dayTex = useTexture('/textures/earth_day.jpg');
 	const nightTex = useTexture('/textures/earth_night.jpg');
+
+	// Track loaded textures
+	let dayMap = $state<THREE.Texture | null>(null);
+	let nightMap = $state<THREE.Texture | null>(null);
+
+	// Load independently — don't wait for both
+	dayTex.then(t => { dayMap = t; }).catch(() => {});
+	nightTex.then(t => { nightMap = t; }).catch(() => {});
 
 	const earthVert = `
 		varying vec2 vUv;
@@ -49,10 +55,12 @@
 		}
 	`;
 
+	// Shader that works with or without night texture
 	const earthFrag = `
 		uniform sampler2D dayMap;
 		uniform sampler2D nightMap;
 		uniform vec3 sunDirection;
+		uniform float hasNight;
 		varying vec2 vUv;
 		varying vec3 vNormal;
 		varying vec3 vPosition;
@@ -60,9 +68,14 @@
 			vec3 normal = normalize(vNormal);
 			float sunDot = dot(normal, sunDirection);
 			float dayFactor = smoothstep(-0.15, 0.25, sunDot);
-			vec4 dayColor = texture2D(dayMap, vUv);
-			vec4 nightColor = texture2D(nightMap, vUv);
-			vec3 surface = mix(nightColor.rgb * 2.0, dayColor.rgb, dayFactor);
+			vec3 dayColor = texture2D(dayMap, vUv).rgb;
+			vec3 surface;
+			if (hasNight > 0.5) {
+				vec3 nightColor = texture2D(nightMap, vUv).rgb;
+				surface = mix(nightColor * 2.0, dayColor, dayFactor);
+			} else {
+				surface = dayColor * (dayFactor * 0.85 + 0.15);
+			}
 			vec3 viewDir = normalize(-vPosition);
 			vec3 reflectDir = reflect(-sunDirection, normal);
 			float specular = pow(max(dot(viewDir, reflectDir), 0.0), 48.0);
@@ -70,26 +83,28 @@
 			gl_FragColor = vec4(surface, 1.0);
 		}
 	`;
+
+	let uniforms = $derived({
+		dayMap: { value: dayMap },
+		nightMap: { value: nightMap || dayMap },
+		sunDirection: { value: sunDir },
+		hasNight: { value: nightMap ? 1.0 : 0.0 }
+	});
 </script>
 
 <T.Group position.x={wx} position.y={wy} position.z={wz}>
-	{#await Promise.all([dayTex, nightTex]) then [day, night]}
+	{#if dayMap}
 		<T.Mesh>
 			<T.SphereGeometry args={[visualRadius, 64, 64]} />
 			<T.ShaderMaterial
 				vertexShader={earthVert}
 				fragmentShader={earthFrag}
-				uniforms={{
-					dayMap: { value: day },
-					nightMap: { value: night },
-					sunDirection: sunDirUniform
-				}}
+				uniforms={uniforms}
 			/>
 		</T.Mesh>
 
-		<!-- Atmosphere -->
 		<T.Mesh>
-			<T.SphereGeometry args={[visualRadius * 1.04, 64, 64]} />
+			<T.SphereGeometry args={[visualRadius * 1.04, 48, 48]} />
 			<T.ShaderMaterial
 				vertexShader={`
 					varying vec3 vNormal;
@@ -116,18 +131,10 @@
 				depthWrite={false}
 			/>
 		</T.Mesh>
-	{:catch}
-		<!-- Fallback with just day texture -->
-		{#await dayTex then day}
-			<T.Mesh>
-				<T.SphereGeometry args={[visualRadius, 48, 48]} />
-				<T.MeshStandardMaterial map={day} roughness={0.8} />
-			</T.Mesh>
-		{:catch}
-			<T.Mesh>
-				<T.SphereGeometry args={[visualRadius, 32, 32]} />
-				<T.MeshStandardMaterial color="#4A90D9" roughness={0.7} />
-			</T.Mesh>
-		{/await}
-	{/await}
+	{:else}
+		<T.Mesh>
+			<T.SphereGeometry args={[visualRadius, 32, 32]} />
+			<T.MeshStandardMaterial color="#4A90D9" roughness={0.7} />
+		</T.Mesh>
+	{/if}
 </T.Group>
