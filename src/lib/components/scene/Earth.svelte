@@ -33,16 +33,9 @@
 		}
 	});
 
-	const textures = useTexture({
-		dayMap: '/textures/earth_day.jpg',
-		nightMap: '/textures/earth_night.jpg'
-	});
-
-	const earthUniforms = {
-		dayMap: { value: null as THREE.Texture | null },
-		nightMap: { value: null as THREE.Texture | null },
-		sunDirection: sunDirUniform
-	};
+	// Load textures separately to avoid object-mode issues
+	const dayTex = useTexture('/textures/earth_day.jpg');
+	const nightTex = useTexture('/textures/earth_night.jpg');
 
 	const earthVert = `
 		varying vec2 vUv;
@@ -77,69 +70,64 @@
 			gl_FragColor = vec4(surface, 1.0);
 		}
 	`;
-
-	const atmosVert = `
-		varying vec3 vNormal;
-		varying vec3 vPosition;
-		void main() {
-			vNormal = normalize(normalMatrix * normal);
-			vPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
-			gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-		}
-	`;
-
-	const atmosFrag = `
-		uniform vec3 glowColor;
-		uniform float intensity;
-		uniform vec3 sunDirection;
-		varying vec3 vNormal;
-		varying vec3 vPosition;
-		void main() {
-			vec3 normal = normalize(vNormal);
-			vec3 viewDir = normalize(-vPosition);
-			float fresnel = 1.0 - dot(viewDir, normal);
-			fresnel = pow(fresnel, 3.0) * intensity;
-			float sunFacing = dot(normal, sunDirection) * 0.3 + 0.7;
-			gl_FragColor = vec4(glowColor * fresnel * sunFacing, fresnel * 0.6);
-		}
-	`;
 </script>
 
 <T.Group position.x={wx} position.y={wy} position.z={wz}>
-	{#await textures then maps}
-		{@const _ = (() => {
-			earthUniforms.dayMap.value = maps.dayMap;
-			earthUniforms.nightMap.value = maps.nightMap;
-		})()}
+	{#await Promise.all([dayTex, nightTex]) then [day, night]}
 		<T.Mesh>
 			<T.SphereGeometry args={[visualRadius, 64, 64]} />
 			<T.ShaderMaterial
 				vertexShader={earthVert}
 				fragmentShader={earthFrag}
-				uniforms={earthUniforms}
+				uniforms={{
+					dayMap: { value: day },
+					nightMap: { value: night },
+					sunDirection: sunDirUniform
+				}}
 			/>
 		</T.Mesh>
 
+		<!-- Atmosphere -->
 		<T.Mesh>
 			<T.SphereGeometry args={[visualRadius * 1.04, 64, 64]} />
 			<T.ShaderMaterial
-				vertexShader={atmosVert}
-				fragmentShader={atmosFrag}
-				uniforms={{
-					glowColor: { value: new THREE.Vector3(0.3, 0.6, 1.0) },
-					intensity: { value: 1.5 },
-					sunDirection: sunDirUniform
-				}}
-				transparent={true}
+				vertexShader={`
+					varying vec3 vNormal;
+					varying vec3 vPosition;
+					void main() {
+						vNormal = normalize(normalMatrix * normal);
+						vPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+						gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+					}
+				`}
+				fragmentShader={`
+					varying vec3 vNormal;
+					varying vec3 vPosition;
+					void main() {
+						vec3 viewDir = normalize(-vPosition);
+						float fresnel = 1.0 - dot(viewDir, normalize(vNormal));
+						fresnel = pow(fresnel, 3.0) * 1.5;
+						gl_FragColor = vec4(vec3(0.3, 0.6, 1.0) * fresnel * 0.7, fresnel * 0.6);
+					}
+				`}
+				transparent
 				side={THREE.FrontSide}
 				blending={THREE.AdditiveBlending}
 				depthWrite={false}
 			/>
 		</T.Mesh>
 	{:catch}
-		<T.Mesh>
-			<T.SphereGeometry args={[visualRadius, 32, 32]} />
-			<T.MeshStandardMaterial color="#4A90D9" roughness={0.7} />
-		</T.Mesh>
+		<!-- Fallback with just day texture -->
+		{#await dayTex then day}
+			<T.Mesh>
+				<T.SphereGeometry args={[visualRadius, 48, 48]} />
+				<T.MeshStandardMaterial map={day} roughness={0.8} />
+			</T.Mesh>
+		{:catch}
+			<T.Mesh>
+				<T.SphereGeometry args={[visualRadius, 32, 32]} />
+				<T.MeshStandardMaterial color="#4A90D9" roughness={0.7} />
+			</T.Mesh>
+		{/await}
 	{/await}
 </T.Group>
