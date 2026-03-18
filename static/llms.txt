@@ -1,0 +1,10 @@
+# What If Someday?
+
+> An interactive 3D solar system simulation exploring what happens when a black hole enters our neighborhood.
+
+What If Someday? is a browser-based WebGL simulation built with Three.js and SvelteKit. Users can explore a real-time 3D solar system with accurate orbital mechanics, track individual planets, observe trajectories, and trigger a black hole scenario to watch gravitational chaos unfold.
+
+Created by Jose Sepulveda Pino.
+
+## Pages
+- [Home](https://what-if-someday.vercel.app/): Interactive 3D solar system simulation with black hole scenarios
